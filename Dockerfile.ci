@@ -1,17 +1,31 @@
-FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+FROM golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS build
 
 ARG TAILSCALE_VERSION=1.104.2
+ENV GOTOOLCHAIN=local
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download tailscale.com@v${TAILSCALE_VERSION} \
+    && cp -a /go/pkg/mod/tailscale.com@v${TAILSCALE_VERSION} /src \
+    && chmod -R u+w /src
+WORKDIR /src
+# The official 1.104.2 binaries still contain x/net 0.59.0 (CVE-2026-78669).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go get golang.org/x/net@v0.60.0
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-s -w -X tailscale.com/version.shortStamp=${TAILSCALE_VERSION} -X tailscale.com/version.longStamp=${TAILSCALE_VERSION}-ci-security" \
+    -o /out/ ./cmd/tailscale ./cmd/tailscaled
+
+FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+
 LABEL org.opencontainers.image.source="https://github.com/deonthomasgy/docker-tailscale"
 
 RUN apt-get update -qq \
     && apt-get install -y --no-install-recommends ca-certificates iptables curl openssh-client \
-    && curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
-    && curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list -o /etc/apt/sources.list.d/tailscale.list \
-    && apt-get update -qq \
-    && apt-get install -y --no-install-recommends tailscale=${TAILSCALE_VERSION} \
-    && test "$(tailscale version | head -n 1)" = "${TAILSCALE_VERSION}" \
     && update-alternatives --set iptables /usr/sbin/iptables-legacy \
     && mkdir -p /var/run/tailscale \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /out/tailscale /usr/bin/tailscale
+COPY --from=build /out/tailscaled /usr/sbin/tailscaled
 
 CMD ["sh", "-c", "while true; do sleep 3600; done"]
