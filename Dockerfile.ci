@@ -1,0 +1,17 @@
+FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+
+ARG TAILSCALE_VERSION=1.104.2
+LABEL org.opencontainers.image.source="https://github.com/deonthomasgy/docker-tailscale"
+
+RUN apt-get update -qq \
+    && apt-get install -y --no-install-recommends ca-certificates iptables curl openssh-client \
+    && curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
+    && curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list -o /etc/apt/sources.list.d/tailscale.list \
+    && apt-get update -qq \
+    && apt-get install -y --no-install-recommends tailscale=${TAILSCALE_VERSION} \
+    && test "$(tailscale version | head -n 1)" = "${TAILSCALE_VERSION}" \
+    && update-alternatives --set iptables /usr/sbin/iptables-legacy \
+    && mkdir -p /var/run/tailscale \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["sh", "-c", "while true; do sleep 3600; done"]
